@@ -1,0 +1,48 @@
+name: Build TimeCycle Studio
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ScriptHookV SDK
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://www.dev-c.com/gtav/scripthookv/' -OutFile page.html
+          $page = Get-Content page.html -Raw
+          $match = [regex]::Match($page, 'href=["'']([^"'']+\.zip)["'']')
+          if (-not $match.Success) { throw 'SDK download link not found' }
+          $url = $match.Groups[1].Value
+          if ($url.StartsWith('/')) { $url = 'https://www.dev-c.com' + $url }
+          Invoke-WebRequest $url -OutFile sdk.zip
+          Expand-Archive sdk.zip -DestinationPath sdk -Force
+
+      - name: Build ASI
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" || call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" || call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /LD /EHsc /std:c++17 /O2 /I sdk\inc src\TimeCycleStudio.cpp /link /LIBPATH:sdk\lib ScriptHookV.lib /OUT:TimeCycleStudio.asi
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          py -m pip install pyinstaller
+          py -m PyInstaller --noconfirm --onefile --windowed --name TimeCycleStudio app/TimeCycleStudio.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item dist/TimeCycleStudio.exe release/
+          Copy-Item TimeCycleStudio.asi release/
+          Copy-Item README_RU.txt release/Установка.txt
+          Compress-Archive release/* TimeCycleStudio-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TimeCycleStudio-Windows
+          path: TimeCycleStudio-Windows.zip
